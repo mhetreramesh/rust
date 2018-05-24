@@ -12,6 +12,8 @@ use std::collections::{HashMap, HashSet};
 use std::default::Default;
 use std::hash::{Hasher, Hash, BuildHasherDefault};
 use std::ops::BitXor;
+use std::mem::size_of;
+use byteorder::{ByteOrder, NativeEndian};
 
 pub type FxHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher>>;
 pub type FxHashSet<V> = HashSet<V, BuildHasherDefault<FxHasher>>;
@@ -37,6 +39,7 @@ pub fn FxHashSet<V: Hash + Eq>() -> FxHashSet<V> {
 /// out-performs an FNV-based hash within rustc itself -- the collision rate is
 /// similar or slightly worse than FNV, but the speed of the hash function
 /// itself is much higher because it works on up to 8 bytes at a time.
+#[derive(Copy, Clone)]
 pub struct FxHasher {
     hash: usize
 }
@@ -62,11 +65,30 @@ impl FxHasher {
 
 impl Hasher for FxHasher {
     #[inline]
-    fn write(&mut self, bytes: &[u8]) {
-        for byte in bytes {
-            let i = *byte;
-            self.add_to_hash(i as usize);
+    fn write(&mut self, mut bytes: &[u8]) {
+        #[cfg(target_pointer_width = "32")]
+        let read_usize = |bytes| NativeEndian::read_u32(bytes);
+        #[cfg(target_pointer_width = "64")]
+        let read_usize = |bytes| NativeEndian::read_u64(bytes);
+
+        let mut hash = *self;
+        assert!(size_of::<usize>() <= 8);
+        while bytes.len() >= size_of::<usize>() {
+            hash.add_to_hash(read_usize(bytes) as usize);
+            bytes = &bytes[size_of::<usize>()..];
         }
+        if (size_of::<usize>() > 4) && (bytes.len() >= 4) {
+            hash.add_to_hash(NativeEndian::read_u32(bytes) as usize);
+            bytes = &bytes[4..];
+        }
+        if (size_of::<usize>() > 2) && bytes.len() >= 2 {
+            hash.add_to_hash(NativeEndian::read_u16(bytes) as usize);
+            bytes = &bytes[2..];
+        }
+        if (size_of::<usize>() > 1) && bytes.len() >= 1 {
+            hash.add_to_hash(bytes[0] as usize);
+        }
+        *self = hash;
     }
 
     #[inline]

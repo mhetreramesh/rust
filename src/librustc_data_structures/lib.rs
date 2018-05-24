@@ -32,6 +32,7 @@
 #![cfg_attr(unix, feature(libc))]
 #![cfg_attr(test, feature(test))]
 
+extern crate byteorder;
 extern crate core;
 extern crate ena;
 #[macro_use]
